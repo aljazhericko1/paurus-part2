@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class ImportApplicationWithDelay {
     private static final Map<Integer, Long> PROCESSING_DELAY_IN_MS = new ConcurrentHashMap<>();
-    private static final Map<String, ExecutorService> THREAD_POOL = new HashMap<>();
+    private static final Map<String, ExecutorService> EXECUTOR_SERVICE_MAP = new HashMap<>();
 
     private static final Random RANDOM = new Random();
 
@@ -68,7 +68,7 @@ public class ImportApplicationWithDelay {
             String matchId = st.split("\\|")[0];
             // Using newSingleThreadExecutor ensures threads are run sequentially for every matchId
             // Processing events from one match id should have no effect on other matchId
-            ExecutorService executor = THREAD_POOL.computeIfAbsent(matchId, x -> Executors.newSingleThreadExecutor(Thread.ofVirtual().name(matchId).factory()));
+            ExecutorService executor = EXECUTOR_SERVICE_MAP.computeIfAbsent(matchId, x -> Executors.newSingleThreadExecutor(Thread.ofVirtual().name(matchId).factory()));
 
             String finalSt = st;
             executor.execute(() -> processString(finalSt, connection));
@@ -108,7 +108,7 @@ public class ImportApplicationWithDelay {
     private static void waitForAllTaskExecutorsToCompleteProcessing() {
         log.info("Started waiting on all executors to complete");
         AtomicInteger executorFinishedCount = new AtomicInteger();
-        THREAD_POOL.forEach((matchId, executor) -> {
+        EXECUTOR_SERVICE_MAP.forEach((matchId, executor) -> {
             executor.shutdown();
             try {
                 executor.awaitTermination(1000, TimeUnit.SECONDS);
