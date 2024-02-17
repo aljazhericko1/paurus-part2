@@ -1,82 +1,45 @@
 package org.paurus;
 
 import lombok.SneakyThrows;
-import lombok.extern.log4j.Log4j;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.sql.*;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class ImportApplicationWithDelay {
     private static final Map<Integer, Long> PROCESSING_DELAY_IN_MS = new ConcurrentHashMap<>();
-    private static final Map<String, ExecutorService> THREAD_POOL = new ConcurrentHashMap<>();
+    private static final Map<String, ExecutorService> THREAD_POOL = new HashMap<>();
 
     private static final Random RANDOM = new Random();
 
     @SneakyThrows
     public static void main(String[] args) {
         String url = "jdbc:h2:~/test";
-
         Connection conn = DriverManager.getConnection(url, "sa", "");
         Statement statement = conn.createStatement();
-        initializeDB(statement);
+
+        dropExistingTableAndCreateNewTable(statement);
 
         processData(conn);
 
-        // Wait for all task executors to finish
-        AtomicInteger executorFinishedCount = new AtomicInteger();
-        THREAD_POOL.forEach((matchId, executor) -> {
-            executor.shutdown();
-            try {
-                executor.awaitTermination(1000, TimeUnit.SECONDS);
-                executorFinishedCount.getAndIncrement();
-            } catch (InterruptedException e) {
-                log.info("Could not stop in time");
-            }
-        });
-        queryDB(statement);
+        waitForAllTaskExecutorsToCompleteProcessing();
+
+        queryDBForMinAndMaxInsertionTimestamp(statement);
     }
 
-    private static void processData(Connection connection) throws IOException {
-        log.info("Starting data processing");
-
-        BufferedReader br = new BufferedReader(new InputStreamReader(ImportApplicationWithDelay.class.getResourceAsStream("/fo_random.txt")));
-        br.readLine();
-        String st;
-        while ((st = br.readLine()) != null) {
-            String finalSt = st;
-
-            String matchId = st.split("\\|")[0];
-            ExecutorService executor = THREAD_POOL.computeIfAbsent(matchId, x -> Executors.newSingleThreadExecutor(Thread.ofVirtual().name(matchId).factory()));
-            executor.execute(() -> processString(finalSt, connection));
-        }
-        log.info("Completed data insertion");
-    }
-
-    @SneakyThrows
-    private static void processString(String st, Connection connection) {
-        String[] split = st.split("\\|");
-        int eventType = Integer.parseInt(split[1]);
-        Long processingDelay = PROCESSING_DELAY_IN_MS.computeIfAbsent(eventType, x -> RANDOM.nextLong(50L));
-        log.info("Processing {} with delay {}", split[0], processingDelay);
-
-        Thread.sleep(processingDelay);
-
-        String insertQuery = "INSERT INTO DATA (match_id, market_id, outcome_id, specifiers)" + "VALUES (?, ?, ?, ?)";
-        PreparedStatement preparedStatement = connection.prepareStatement(insertQuery);
-
-        insertDataInDB(preparedStatement, split[0], eventType, split[2], split.length > 3 ? split[3] : null);
-    }
-
-    private static void initializeDB(Statement statement) throws SQLException {
-        log.info("Starting DB initialization");
+    private static void dropExistingTableAndCreateNewTable(Statement statement) throws SQLException {
+        log.info("Starting DB recreation");
 
         String createStatement = """
                 DROP TABLE IF EXISTS DATA;
@@ -91,7 +54,41 @@ public class ImportApplicationWithDelay {
                 """;
         statement.executeUpdate(createStatement);
 
-        log.info("Completed DB initialization");
+        log.info("Completed DB recreation");
+    }
+
+    private static void processData(Connection connection) throws IOException {
+        log.info("Starting file processing");
+
+        BufferedReader br = new BufferedReader(new InputStreamReader(ImportApplicationWithDelay.class.getResourceAsStream("/fo_random.txt")));
+        br.readLine();
+        String st;
+        while ((st = br.readLine()) != null) {
+            // Find or create the executor service to schedule the line processing
+            String matchId = st.split("\\|")[0];
+            // Using newSingleThreadExecutor ensures threads are run sequentially for every matchId
+            // Processing events from one match id should have no effect on other matchId
+            ExecutorService executor = THREAD_POOL.computeIfAbsent(matchId, x -> Executors.newSingleThreadExecutor(Thread.ofVirtual().name(matchId).factory()));
+
+            String finalSt = st;
+            executor.execute(() -> processString(finalSt, connection));
+        }
+        log.info("Completed file processing");
+    }
+
+    @SneakyThrows
+    private static void processString(String st, Connection connection) {
+        String[] split = st.split("\\|");
+        int eventType = Integer.parseInt(split[1]);
+        // Set random delay to same value for events of the same type
+        Long processingDelay = PROCESSING_DELAY_IN_MS.computeIfAbsent(eventType, x -> RANDOM.nextLong(50L));
+        log.info("Processing {} with delay {}", split[0], processingDelay);
+
+        Thread.sleep(processingDelay);
+
+        String insertQuery = "INSERT INTO DATA (match_id, market_id, outcome_id, specifiers)" + "VALUES (?, ?, ?, ?)";
+        PreparedStatement preparedStatement = connection.prepareStatement(insertQuery);
+        insertDataInDB(preparedStatement, split[0], eventType, split[2], split.length > 3 ? split[3] : null);
     }
 
     @SneakyThrows
@@ -108,8 +105,24 @@ public class ImportApplicationWithDelay {
         statement.clearParameters();
     }
 
+    private static void waitForAllTaskExecutorsToCompleteProcessing() {
+        log.info("Started waiting on all executors to complete");
+        AtomicInteger executorFinishedCount = new AtomicInteger();
+        THREAD_POOL.forEach((matchId, executor) -> {
+            executor.shutdown();
+            try {
+                executor.awaitTermination(1000, TimeUnit.SECONDS);
+                executorFinishedCount.getAndIncrement();
+            } catch (InterruptedException e) {
+                log.info("Could not stop in time");
+            }
+
+        });
+        log.info("Completed waiting on all executors to complete");
+    }
+
     @SneakyThrows
-    private static void queryDB(Statement statement) {
+    private static void queryDBForMinAndMaxInsertionTimestamp(Statement statement) {
         log.info("Starting data evaluation");
 
         try (ResultSet resultSetMin = statement.executeQuery("SELECT MIN(date_insert) AS min_insert_date FROM DATA")) {
