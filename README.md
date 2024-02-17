@@ -1,17 +1,13 @@
-In the file (data set) you can find 4 columns of data (MATCH_ID,
-MARKET_ID, OUTCOME_ID, SPECIFIERS) separated with pipe. Your task is to
-put this data into DB as fast as possible, but in ordered manner (asc)
-for single MATCH_ID starting with first column and so on. Please add one
-more column - date_insert, which should signal the timestamp of
-insertion. If you order data within one MATCH_ID by 'date_insert', data
-should be ordered as specified. It's important to know that file
-mentioned below (data set) is just a snippet. In real environment this
-is represented as a steady data stream.
+# Paurus import app
 
-Data set can be found here:
-https://www.dropbox.com/s/dvg82e1rtut215o/fo.zip?dl=0 Please provide
-min(date_insert) and max(date_insert). Please provide source code (and
-everything else needed) - use Java and relational database of your choice.
+Simple CLI app, which takes entries from data.txt and inserts them into a DB and prints out start and end insertion time.
+
+## How to run
+
+1. Install H2 database from https://www.h2database.com/html/main.html
+2. Run the code
+
+##
 
 We're sharing another perspective to this problem for better
 understanding. Let's say that we mark events (data in data set) with a
