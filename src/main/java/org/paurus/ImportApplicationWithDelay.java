@@ -1,6 +1,8 @@
 package org.paurus;
 
 import lombok.SneakyThrows;
+import lombok.extern.log4j.Log4j;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -11,6 +13,7 @@ import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+@Slf4j
 public class ImportApplicationWithDelay {
     private static final Map<Integer, Long> PROCESSING_DELAY_IN_MS = new ConcurrentHashMap<>();
     private static final Map<String, ExecutorService> THREAD_POOL = new ConcurrentHashMap<>();
@@ -28,26 +31,21 @@ public class ImportApplicationWithDelay {
         processData(conn);
 
         // Wait for all task executors to finish
-        while (true) {
-            AtomicInteger executorFinishedCount = new AtomicInteger();
-            THREAD_POOL.forEach((matchId, executor) -> {
-                executor.shutdown();
-                try {
-                    executor.awaitTermination(1000, TimeUnit.SECONDS);
-                    executorFinishedCount.getAndIncrement();
-                } catch (InterruptedException e) {
-                    System.out.println("Could not stop in time");
-                }
-            });
-            if (executorFinishedCount.get() == THREAD_POOL.size()) {
-                break;
+        AtomicInteger executorFinishedCount = new AtomicInteger();
+        THREAD_POOL.forEach((matchId, executor) -> {
+            executor.shutdown();
+            try {
+                executor.awaitTermination(1000, TimeUnit.SECONDS);
+                executorFinishedCount.getAndIncrement();
+            } catch (InterruptedException e) {
+                log.info("Could not stop in time");
             }
-        }
+        });
         queryDB(statement);
     }
 
     private static void processData(Connection connection) throws IOException {
-        System.out.println("Starting data processing");
+        log.info("Starting data processing");
 
         BufferedReader br = new BufferedReader(new InputStreamReader(ImportApplicationWithDelay.class.getResourceAsStream("/fo_random.txt")));
         br.readLine();
@@ -55,10 +53,11 @@ public class ImportApplicationWithDelay {
         while ((st = br.readLine()) != null) {
             String finalSt = st;
 
-            ExecutorService executor = THREAD_POOL.computeIfAbsent(st.split("\\|")[0], x -> Executors.newSingleThreadExecutor(Thread.ofVirtual().factory()));
+            String matchId = st.split("\\|")[0];
+            ExecutorService executor = THREAD_POOL.computeIfAbsent(matchId, x -> Executors.newSingleThreadExecutor(Thread.ofVirtual().name(matchId).factory()));
             executor.execute(() -> processString(finalSt, connection));
         }
-        System.out.println("Completed data insertion");
+        log.info("Completed data insertion");
     }
 
     @SneakyThrows
@@ -66,7 +65,7 @@ public class ImportApplicationWithDelay {
         String[] split = st.split("\\|");
         int eventType = Integer.parseInt(split[1]);
         Long processingDelay = PROCESSING_DELAY_IN_MS.computeIfAbsent(eventType, x -> RANDOM.nextLong(50L));
-        System.out.printf("Processing %s with delay %d%n", split[0], processingDelay);
+        log.info("Processing {} with delay {}", split[0], processingDelay);
 
         Thread.sleep(processingDelay);
 
@@ -77,7 +76,7 @@ public class ImportApplicationWithDelay {
     }
 
     private static void initializeDB(Statement statement) throws SQLException {
-        System.out.println("Starting DB initialization");
+        log.info("Starting DB initialization");
 
         String createStatement = """
                 DROP TABLE IF EXISTS DATA;
@@ -92,7 +91,7 @@ public class ImportApplicationWithDelay {
                 """;
         statement.executeUpdate(createStatement);
 
-        System.out.println("Completed DB initialization");
+        log.info("Completed DB initialization");
     }
 
     @SneakyThrows
@@ -111,21 +110,21 @@ public class ImportApplicationWithDelay {
 
     @SneakyThrows
     private static void queryDB(Statement statement) {
-        System.out.println("Starting data evaluation");
+        log.info("Starting data evaluation");
 
         try (ResultSet resultSetMin = statement.executeQuery("SELECT MIN(date_insert) AS min_insert_date FROM DATA")) {
             if (resultSetMin.first()) {
-                System.out.println("Minimum insertion date: " + resultSetMin.getTimestamp("min_insert_date"));
+                log.info("Minimum insertion date: " + resultSetMin.getTimestamp("min_insert_date"));
             }
         }
 
         try (ResultSet resultSetMax = statement.executeQuery("SELECT MAX(date_insert) AS max_insert_date FROM DATA")) {
             if (resultSetMax.first()) {
-                System.out.println("Maximum insertion date: " + resultSetMax.getTimestamp("max_insert_date"));
+                log.info("Maximum insertion date: " + resultSetMax.getTimestamp("max_insert_date"));
             }
         }
 
-        System.out.println("Completed data evaluation");
+        log.info("Completed data evaluation");
     }
 
 }
