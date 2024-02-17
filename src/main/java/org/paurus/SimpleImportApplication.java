@@ -3,13 +3,11 @@ package org.paurus;
 import lombok.SneakyThrows;
 
 import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.InputStreamReader;
-import java.net.URL;
-import java.nio.file.Files;
 import java.sql.*;
 
-public class ImportApplication {
+public class SimpleImportApplication {
+
     @SneakyThrows
     public static void main(String[] args) {
         String url = "jdbc:h2:~/test";
@@ -48,7 +46,7 @@ public class ImportApplication {
     private static void insertDataInDB(PreparedStatement statement) {
         System.out.println("Starting data insertion");
 
-        BufferedReader br = new BufferedReader(new InputStreamReader(ImportApplication.class.getResourceAsStream("/fo_random.txt")));
+        BufferedReader br = new BufferedReader(new InputStreamReader(SimpleImportApplication.class.getResourceAsStream("/fo_random.txt")));
         String st;
         br.readLine();
         while ((st = br.readLine()) != null) {
